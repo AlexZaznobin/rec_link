@@ -16,5 +16,8 @@ RUN chmod +x main.py
 # Run the main.py script during the build
 RUN python main.py
 
+# Add a final message to signal the build is complete
+RUN echo "process finished successfully!"
+
 # Run the Python script when the container starts
 CMD ["python", "main.py"]
