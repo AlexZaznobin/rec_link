@@ -29,28 +29,7 @@ class DataProcessor :
         return self.client.execute(query)
 
     def process_dataset (self, data, groups, id_field) :
-        for row in data :
-            uid = row[0]
-            key = self.generate_key(row)
-
-            # Ищем подходящую группу
-            best_match = None
-            best_score = 0
-            for group_key in groups :
-                score = fuzz.ratio(key, group_key)
-                if score > best_score and score > 80 :  # Порог схожести
-                    best_match = group_key
-                    best_score = score
-
-            if best_match :
-                groups[best_match][id_field].append(uid)
-            else :
-                groups[key][id_field].append(uid)
-
-    def generate_key (self, row) :
-        # Генерируем ключ для сравнения записей
-        # Адаптируйте эту функцию в зависимости от структуры ваших данных
-        return " ".join(str(field) for field in row[1 :])  # Исключаем UUID
+       ''' to be done '''
 
     def write_results (self, groups) :
         results = [(group["id_is1"], group["id_is2"], group["id_is3"]) for group in groups.values()]
