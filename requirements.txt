@@ -1,3 +1,2 @@
 clickhouse-driver
-fuzzywuzz
 python-Levenshtein
