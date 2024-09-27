@@ -1,19 +1,17 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# Use a base image that includes Python, such as Python 3.11
+FROM python:3.12
 
 # Set the working directory in the container
 WORKDIR /app
 
+# Copy the local files to the working directory in the container
 COPY . .
 
-# Install any needed packages specified in requirements.txt
+# Install any Python dependencies (assuming you have a requirements.txt file)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Make port 80 available to the world outside this container
-EXPOSE 80
+# Make sure main.py is executable
+RUN chmod +x main.py
 
-# Define environment variable
-ENV PYTHONUNBUFFERED=1
-
-# Run main.py when the container launches
+# Run the Python script when the container starts
 CMD ["python", "main.py"]
