@@ -1,0 +1,8 @@
+ services:
+  web:
+    build: .
+    env_file:
+      - .env          # Load environment variables from .env file
+    volumes:
+      - .:/app        # Mount the local directory into the container (for development)
+    restart: always   # Always restart the container if it stops
