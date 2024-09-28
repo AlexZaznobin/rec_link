@@ -13,8 +13,11 @@ class ClickHouseDataCleaner :
     def run (self, source_table, target_table) :
         self.create_target_table(source_table, target_table)
         self.clean_data(source_table, target_table)
-        self.dedupl(target_table)
         print(f"Data cleaning completed. Cleaned data saved to {target_table}")
+        self.dedupl(target_table)
+        print(f"deduplication cleaning completed. Cleaned data saved to {target_table}_dupl")
+        self.insert_unique_uid_lists( f"{target_table}_dupl", "table_results", 'uid', 'Dup', 'id_is1')
+        print(f"insert_unique_uid_lists completed")
 
     def load_stop_words (self) :
         with open(self.stop_words_file, 'r', encoding='utf-8') as file :
@@ -143,7 +146,7 @@ class ClickHouseDataCleaner :
             sex,
             birthdate,
             phone
-        FROM {source_table}
+        FROM {source_table} limit 10000
         """
 
         self.client.execute(clean_query)
