@@ -17,6 +17,7 @@ class ClickHouseDataCleaner :
         self.dedupl(target_table)
         print(f"deduplication cleaning completed. Cleaned data saved to {target_table}_dupl")
         self.insert_unique_uid_lists( f"{target_table}_dupl", "table_results", 'uid', 'Dup', 'id_is1')
+
         print(f"insert_unique_uid_lists completed")
 
     def load_stop_words (self) :
