@@ -115,8 +115,8 @@ class ClickHouseDataCleaner :
         self.lower_casing(  source_table, inter_table_1)
         self.remove_stop_words(inter_table_1, inter_table_2)
         self.transliteration(inter_table_2, target_table)
-        self.drop_table(inter_table_1)
-        self.drop_table(inter_table_2)
+        self.client.execute(f" DROP TABLE IF EXISTS {inter_table_1}")
+        self.client.execute(f" DROP TABLE IF EXISTS {inter_table_2}")
 
     def lower_casing (self, source_table, target_table) :
 
@@ -196,7 +196,10 @@ class ClickHouseDataCleaner :
 
 
     def dedupl(self,source_table):
-        self.add_duplication_column(source_table, f"{source_table}_ind_dup_ind", 'full_name')
+
+        self.add_duplication_column(source_table,
+                                    'full_name')
+        self.client.execute(f" DROP TABLE IF EXISTS source_table")
     def run (self, source_table, target_table) :
         self.create_target_table(source_table, target_table)
         self.clean_data(source_table, target_table)
@@ -238,21 +241,46 @@ class ClickHouseDataCleaner :
         # Execute the query
         self.client.execute(query)
 
-    def add_duplication_column (self, source_table, target_table, column_name) :
-        # Создание целевой таблицы с добавлением столбца Dup
+    def add_duplication_column (self, source_table, column_names) :
+        # Target table where duplicates are identified
+        target_table = f"{source_table}_dupl"
+
+        # Join column names to use them in the ORDER BY and denseRank
+        columns_concat = ", ".join(column_names)
+
+        # Create a new table based on the source table if it doesn't exist
         create_table_query = f"""
-        CREATE TABLE IF NOT EXISTS {target_table} AS {source_table}
+        CREATE TABLE IF NOT EXISTS {target_table} 
+        AS {source_table} 
         ENGINE = MergeTree()
-        ORDER BY {column_name}
+        ORDER BY ({columns_concat})
         """
         self.client.execute(create_table_query)
 
-        # Выполняем запрос на вставку данных с учетом нового столбца Dup
+        # Alter the target table to add the Dup column if it doesn't exist
+        alter_table_query = f"""
+        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS Dup UInt32
+        """
+        self.client.execute(alter_table_query)
+
+        # Create a concatenated string of the columns for denseRank
+        rank_columns = ", ".join([f"toString({col})" for col in column_names])
+
+        # Insert data into the new table with the Dup column for duplicates across multiple columns
         clean_query = f"""
-        INSERT INTO {target_table}
+        INSERT INTO {target_table} (uid, full_name, email, address, sex, birthdate, phone, Dup)
         SELECT
-            *,
-            denseRank() OVER (ORDER BY {column_name}) AS Dup
+            uid,
+            full_name,
+            email,
+            address,
+            sex,
+            birthdate,
+            phone,
+            denseRank() OVER (ORDER BY {rank_columns}) AS Dup
         FROM {source_table}
         """
         self.client.execute(clean_query)
+
+        print(
+            f"Data from {source_table} has been inserted into {target_table} with a new 'Dup' column for duplicates based on {column_names}.")
