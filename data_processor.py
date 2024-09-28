@@ -9,7 +9,7 @@ class DataProcessor :
         self.client = client
         self.preprocessor=ClickHouseDataCleaner(client=self.client,
                                                 stop_words_file='stop_words.txt',
-                                                birthday_conditions_file='birthday_cleaning_conditions.json')
+                                                birthday_conditions_file='birthday_cleaninig_conditions.json')
 
     def process_data (self) :
 
