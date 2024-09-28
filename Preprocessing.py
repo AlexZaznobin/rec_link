@@ -16,7 +16,7 @@ class DataCleaner:
 
 #     def replace_english_letters(self, text):
 #         """
-#         Имя, вспомогательный метод. Слишком много времени занимает (2 минуты) и не нужен как таковой
+#         Имя, вспомогательный метод
 #         """
 #         text = str(text)  
 #         result = []
@@ -29,6 +29,18 @@ class DataCleaner:
 #                 result.append(self.eng_to_rus.get(text[i], text[i]))
 #                 i += 1
 #         return ''.join(result)
+
+#     def replace_english_letters_fast(self, text):
+#         """
+#         Имя, вспомогательный метод. Заменяем английские симводы длиной 1
+#         """
+#         return ''.join(self.eng_to_rus.get(char, char) for char in text)
+
+#     def clean_name_assist(self, text):
+#         """
+#         Имя, вспомогательный метод. Убираем цифры
+#         """
+#         return ''.join(i for i in text if not i.isdigit())
     
     def clean_name(self):
         """
@@ -39,7 +51,12 @@ class DataCleaner:
         self.df['full_name'] = self.df['full_name'].str.replace('-', '')
         self.df['full_name'] = self.df['full_name'].str.replace(' оглы', '')
         self.df['full_name'] = self.df['full_name'].str.replace(' углы', '')
-        # self.df['corrected_full_name'] = self.df['full_name'].apply(self.replace_english_letters)
+        self.df['full_name'] = self.df['full_name'].str.replace(' угли', '')
+        self.df['full_name'] = self.df['full_name'].str.replace(' огли', '')
+        self.df['full_name'] = self.df['full_name'].str.replace(' нет', '')
+        self.df['full_name'] = self.df['full_name'].str.replace(' отсутствует', '')
+        # self.df['corrected_full_name'] = self.df['full_name'].apply(self.replace_english_letters_fast)
+        # self.df['corrected_full_name'] = self.df['corrected_full_name'].apply(self.clean_name_assist)
     
     def phone_number_missing_plus(self, phone):
         """
@@ -150,7 +167,7 @@ class DataCleaner:
 
                 return corrected_year + birthdate[4:]    
         return birthdate
-    
+  
     def clean_birthdates(self):
         """
         Дни рождения
@@ -158,4 +175,33 @@ class DataCleaner:
         self.df['corrected_birthdate'] = self.df['birthdate'].apply(self.clean_birthdates_assist)
 
 
-cleaner = DataCleaner(main1)
+
+main1 = pd.read_csv(r'D:\main1.csv')
+Cleaner1 = DataCleaner(main1)
+Cleaner1.clean_name()
+Cleaner1.clean_birthdates()
+Cleaner1.clean_email()
+Cleaner1.clean_phone_number()
+main1[['last_name', 'first_name', 'middle_name']] = main1['full_name'].str.split(' ', n=2, expand=True)
+main1.drop(columns=(['birthdate', 'phone', 'full_name', 'email']), inplace=True)
+
+
+main2 = pd.read_csv(r'D:\main2.csv')
+main2['full_name'] = main2['first_name'] + ' ' + main2['middle_name'] + ' ' + main2['last_name']
+main2.drop(columns=(['first_name', 'middle_name', 'last_name']), inplace=True)
+Cleaner2 = DataCleaner(main2)
+Cleaner2.clean_name()
+Cleaner2.clean_birthdates()
+Cleaner2.clean_phone_number()
+main2[['first_name', 'middle_name', 'last_name']] = main2['full_name'].str.split(' ', n=2, expand=True)
+main2.drop(columns=(['birthdate', 'phone', 'full_name']), inplace=True)
+
+
+main3 = pd.read_csv(r'D:\main3.csv')
+main3.rename(columns={"name": "full_name"}, inplace=True)
+Cleaner3 = DataCleaner(main3)
+Cleaner3.clean_name()
+Cleaner3.clean_birthdates()
+Cleaner3.clean_email()
+main3[['first_name', 'last_name']] = main3['full_name'].str.split(' ', n=2, expand=True)
+main3.drop(columns=(['birthdate', 'email', 'full_name']), inplace=True)
