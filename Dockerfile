@@ -13,11 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Make sure main.py is executable
 RUN chmod +x main.py
 
-# Run the main.py script during the build
-RUN python main.py
-
-# Add a final message to signal the build is complete
-RUN echo "process finished successfully!"
 
 # Run the Python script when the container starts
 CMD ["python", "main.py"]
