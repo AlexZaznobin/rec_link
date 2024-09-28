@@ -183,7 +183,7 @@ Cleaner1.clean_birthdates()
 Cleaner1.clean_email()
 Cleaner1.clean_phone_number()
 main1[['last_name', 'first_name', 'middle_name']] = main1['full_name'].str.split(' ', n=2, expand=True)
-main1.drop(columns=(['birthdate', 'phone', 'full_name', 'email']), inplace=True)
+main1.drop(columns=(['birthdate', 'full_name', 'email']), inplace=True)
 
 
 main2 = pd.read_csv(r'D:\main2.csv')
@@ -194,7 +194,7 @@ Cleaner2.clean_name()
 Cleaner2.clean_birthdates()
 Cleaner2.clean_phone_number()
 main2[['first_name', 'middle_name', 'last_name']] = main2['full_name'].str.split(' ', n=2, expand=True)
-main2.drop(columns=(['birthdate', 'phone', 'full_name']), inplace=True)
+main2.drop(columns=(['birthdate', 'full_name']), inplace=True)
 
 
 main3 = pd.read_csv(r'D:\main3.csv')
