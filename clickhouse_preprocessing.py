@@ -29,7 +29,7 @@ class ClickHouseDataCleaner :
         # Apply replaceRegexpAll for each stop word to the given column (full_name)
         stop_words_condition = column_name
         for word in self.stop_words :
-            stop_words_condition = f"replaceRegexpAll({stop_words_condition}, '(?i)\\b{word}\\b', '')"
+            stop_words_condition = f"replaceRegexpAll({stop_words_condition}, ' {word} ', '')"
 
         return stop_words_condition
 
@@ -64,16 +64,21 @@ class ClickHouseDataCleaner :
         )
         """
 
-    def clean_email (self, column_name) :
+    def transliterate_column_ru_en (self, column_name) :
         return f"""
         replaceRegexpAll(
-            replaceRegexpAll({column_name}, '[аевкмнорстух]', 
-                a -> transform(a, ['а','е','в','к','м','н','о','р','с','т','у','х'], 
-                                  ['a','e','b','k','m','h','o','p','c','t','y','x'])),
+            transform({column_name}, ['а','е','в','к','м','н','о','р','с','т','у','х'], 
+                                 ['a','e','b','k','m','h','o','p','c','t','y','x']),
             '@.*$', ''
         )
+        
         """
 
+    def transliterate_column_en_ru (self, column_name) :
+        return f"""
+        transform({column_name}, ['a','e','b','k','m','h','o','p','c','t','y','x'], 
+                               ['а','е','в','к','м','н','о','р','с','т','у','х'])
+        """
     def clean_birthdate (self, column_name) :
         conditions = []
 
@@ -102,22 +107,16 @@ class ClickHouseDataCleaner :
     def apply_lowercase (self, column_name) :
         return f"lowerUTF8({column_name})"
 
-    # {self.apply_lowercase(self.clean_email('email'))}
-    # AS
-    # email,
-    # {self.apply_lowercase(self.clean_phone('phone'))}
-    # AS
-    # phone,
     # {self.apply_lowercase(self.clean_birthdate('birthdate'))}
-    # AS
-    # birthdate
-    # self.clean_full_name('full_name')
 
     def clean_data(self, source_table, target_table):
-        inter_table= f"{source_table}_i1"
-        self.lower_casing(  source_table, inter_table)
-        self.remove_stop_words(inter_table, target_table)
-        self.drop_table(inter_table)
+        inter_table_1= f"{source_table}_i1"
+        inter_table_2= f"{source_table}_i2"
+        self.lower_casing(  source_table, inter_table_1)
+        self.remove_stop_words(inter_table_1, inter_table_2)
+        self.transliteration(inter_table_2, target_table)
+        self.drop_table(inter_table_1)
+        self.drop_table(inter_table_2)
 
     def lower_casing (self, source_table, target_table) :
 
@@ -143,14 +142,39 @@ class ClickHouseDataCleaner :
         self.client.execute(clean_query)
 
     def remove_stop_words (self, intermediate_table, target_table) :
-        # Apply stop word removal to the 'full_name' column only
         clean_query = f"""
         INSERT INTO {target_table}
         SELECT
             uid,
-            {self.remove_stop_words_from_column('full_name')} AS full_name,  -- Clean 'full_name'
-            email,
+            {self.remove_stop_words_from_column('full_name')} AS full_name, 
+            {self.remove_stop_words_from_column('email')} AS email,
             address,
+            sex,
+            {self.clean_birthdate('birthdate')} as birthdate,
+            {self.clean_phone('phone')} as phone
+        FROM {intermediate_table}
+        """
+
+        # Create the target table (if it doesn't exist)
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {target_table} AS {intermediate_table}
+        ENGINE = MergeTree()
+        ORDER BY full_name
+        """
+        self.client.execute(create_table_query)
+
+        # Execute the stop word removal query
+        self.client.execute(clean_query)
+
+        print(f"Removed stop words from 'full_name' and inserted cleaned data into {target_table}.")
+    def transliteration (self, intermediate_table, target_table) :
+        clean_query = f"""
+        INSERT INTO {target_table}
+        SELECT
+            uid,
+            {self.transliterate_column_en_ru('full_name')} AS full_name,            
+            {self.transliterate_column_ru_en('email')} AS email,
+            {self.transliterate_column_en_ru('address')} AS address,      
             sex,
             birthdate,
             phone
@@ -170,9 +194,13 @@ class ClickHouseDataCleaner :
 
         print(f"Removed stop words from 'full_name' and inserted cleaned data into {target_table}.")
 
+
+    def dedupl(self,source_table):
+        self.add_duplication_column(source_table, f"{source_table}_ind_dup_ind", 'full_name')
     def run (self, source_table, target_table) :
         self.create_target_table(source_table, target_table)
         self.clean_data(source_table, target_table)
+        self.dedupl(target_table)
         print(f"Data cleaning completed. Cleaned data saved to {target_table}")
 
     def test_clickhouse_connection (self) :
@@ -193,7 +221,6 @@ class ClickHouseDataCleaner :
         # A simple query to select data from the given table
         query = f"SELECT * FROM {table_name} LIMIT 5"
         result = self.client.execute(query)
-        print(f"Data from {table_name}:", result)
         return result
 
     def describe_table_columns(self, table_name):
@@ -210,3 +237,22 @@ class ClickHouseDataCleaner :
 
         # Execute the query
         self.client.execute(query)
+
+    def add_duplication_column (self, source_table, target_table, column_name) :
+        # Создание целевой таблицы с добавлением столбца Dup
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {target_table} AS {source_table}
+        ENGINE = MergeTree()
+        ORDER BY {column_name}
+        """
+        self.client.execute(create_table_query)
+
+        # Выполняем запрос на вставку данных с учетом нового столбца Dup
+        clean_query = f"""
+        INSERT INTO {target_table}
+        SELECT
+            *,
+            denseRank() OVER (ORDER BY {column_name}) AS Dup
+        FROM {source_table}
+        """
+        self.client.execute(clean_query)
