@@ -1,0 +1,24 @@
+{
+  "conditions": {
+    "length_8_nonzero": "length({column_name}) = 8 and substring({column_name}, 1, 1) != '0'",
+    "length_8": "length({column_name}) = 8",
+    "length_9_starts_9": "length({column_name}) = 9 and substring({column_name}, 1, 1) = '9'",
+    "length_10_starts_dash": "length({column_name}) = 10 and substring({column_name}, 1, 1) = '-'",
+    "length_10_prefix_29_to_99": "length({column_name}) = 10 and substring({column_name}, 1, 2) IN ('29','39','49','59','69','79','89','99')",
+    "length_10_starts_2_not_zero": "length({column_name}) = 10 and substring({column_name}, 1, 1) = '2' and substring({column_name}, 2, 1) != '0'",
+    "length_10_starts_1_not_9": "length({column_name}) = 10 and substring({column_name}, 1, 1) = '1' and substring({column_name}, 2, 1) != '9'",
+    "length_10_prefix_gt_2": "length({column_name}) = 10 and toInt32(substring({column_name}, 1, 1)) > 2",
+    "length_10_year_suffix": "length({column_name}) = 10 and toInt32(substring({column_name}, 1, 1)) > 2 and toInt32(substring({column_name}, 2, 1)) > 0"
+  },
+  "transformations": {
+    "length_8_nonzero": "concat('19', {column_name})",
+    "length_8": "concat('20', {column_name})",
+    "length_9_starts_9": "concat('1', {column_name})",
+    "length_10_starts_dash": "concat('1', substring({column_name}, 2))",
+    "length_10_prefix_29_to_99": "concat('19', substring({column_name}, 3))",
+    "length_10_starts_2_not_zero": "concat('20', substring({column_name}, 3))",
+    "length_10_starts_1_not_9": "if(toInt32(concat('19', substring({column_name}, 3, 2))) < toInt32(toString(year(now()))) - 100, concat('20', substring({column_name}, 3)), concat('19', substring({column_name}, 3)))",
+    "length_10_prefix_gt_2": "concat('20', substring({column_name}, 3))",
+    "length_10_year_suffix": "if(toInt32(substring({column_name}, 1, 2)) > toInt32(substring(toString(year(now())), 3, 2)), concat('19', substring({column_name}, 3)), concat('20', substring({column_name}, 3)))"
+  }
+}
