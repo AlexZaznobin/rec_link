@@ -3,10 +3,8 @@ from clickhouse_driver import Client
 
 
 class ClickHouseDataCleaner :
-    def __init__ (self, client, source_table, target_table, stop_words_file, birthday_conditions_file) :
+    def __init__ (self, client, stop_words_file, birthday_conditions_file) :
         self.client = client
-        self.source_table = source_table
-        self.target_table = target_table
         self.stop_words_file = stop_words_file
         self.birthday_conditions_file = birthday_conditions_file
         self.stop_words = self.load_stop_words()
@@ -20,14 +18,10 @@ class ClickHouseDataCleaner :
         with open(self.birthday_conditions_file, 'r', encoding='utf-8') as file :
             return json.load(file)
 
-    def create_target_table (self) :
+    def create_target_table (self, source_table, target_table) :
         create_table_query = f"""
-        CREATE TABLE IF NOT EXISTS {self.target_table} (
-            full_name String,
-            phone String,
-            email String,
-            birthdate String
-        ) ENGINE = MergeTree() ORDER BY full_name
+        CREATE TABLE IF NOT EXISTS {target_table} AS {source_table}
+        ENGINE = MergeTree() ORDER BY full_name
         """
         self.client.execute(create_table_query)
 
@@ -80,7 +74,7 @@ class ClickHouseDataCleaner :
     def clean_birthdate (self, column_name) :
         conditions = []
         for condition in self.birthday_conditions :
-            when_clause = condition['when']
+            when_clause = condition['when'].replace('{column_name}', column_name)
             then_clause = condition['then'].replace('{column_name}', column_name)
             conditions.append(f"WHEN {when_clause} THEN {then_clause}")
 
@@ -90,19 +84,19 @@ class ClickHouseDataCleaner :
     def apply_lowercase (self, column_name) :
         return f"lower({column_name})"
 
-    def clean_data (self) :
+    def clean_data (self, source_table, target_table) :
         clean_query = f"""
-        INSERT INTO {self.target_table}
+        INSERT INTO {target_table}
         SELECT
             {self.apply_lowercase(self.clean_full_name('full_name'))} AS full_name,
             {self.apply_lowercase(self.clean_phone('phone'))} AS phone,
             {self.apply_lowercase(self.clean_email('email'))} AS email,
             {self.apply_lowercase(self.clean_birthdate('birthdate'))} AS birthdate
-        FROM {self.source_table}
+        FROM {source_table}
         """
         self.client.execute(clean_query)
 
-    def run (self) :
-        self.create_target_table()
-        self.clean_data()
-        print(f"Data cleaning completed. Cleaned data saved to {self.target_table}")
+    def run (self, source_table, target_table) :
+        self.create_target_table(source_table, target_table)
+        self.clean_data(source_table, target_table)
+        print(f"Data cleaning completed. Cleaned data saved to {target_table}")
