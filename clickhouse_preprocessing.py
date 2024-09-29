@@ -212,7 +212,6 @@ class ClickHouseDataCleaner :
             phone
         FROM {source_table}  
         """
-        # limit 10000
         self.client.execute(clean_query)
 
     def remove_stop_words (self, intermediate_table, target_table) :

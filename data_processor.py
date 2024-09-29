@@ -89,9 +89,8 @@ class DataProcessor :
         # Execute aggregation query
         result = self.client.execute(query)
 
-        # Insert aggregated data into the target table
+        # Insert aggregated data into the target table without saving the key_column
         for row in result :
-            key_value = row[0]
             aggregated_values = row[1]
 
             # Convert the UUID array into a ClickHouse-compatible format
@@ -101,14 +100,14 @@ class DataProcessor :
             # Create a formatted string for the array of UUIDs in ClickHouse format
             formatted_values_str = f"[{', '.join(formatted_aggregated_values)}]"
 
-            # Form insert query with correct formatting
+            # Form insert query for only the target_column
             insert_query = f"""
-            INSERT INTO {target_table}  {target_column})
-            VALUES (%s, {formatted_values_str})
+            INSERT INTO {target_table} ({target_column})
+            VALUES ({formatted_values_str})
             """
 
             # Execute the insertion query
-            self.client.execute(insert_query, (key_value,))
+            self.client.execute(insert_query)
 
         print(f"Data aggregation and insertion into {target_table} completed.")
 
