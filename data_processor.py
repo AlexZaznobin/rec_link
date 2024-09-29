@@ -94,16 +94,21 @@ class DataProcessor :
             key_value = row[0]
             aggregated_values = row[1]
 
-            # Properly format UUID array for ClickHouse
-            formatted_aggregated_values = [str(uuid) for uuid in aggregated_values]
+            # Convert the UUID array into a ClickHouse-compatible format
+            # Use toUUID on each UUID value to ensure it's handled properly
+            formatted_aggregated_values = [f"toUUID('{str(uuid)}')" for uuid in aggregated_values]
+
+            # Create a formatted string for the array of UUIDs in ClickHouse format
+            formatted_values_str = f"[{', '.join(formatted_aggregated_values)}]"
 
             # Form insert query with correct formatting
             insert_query = f"""
-            INSERT INTO {target_table} ({target_column})
-            VALUES (%s)
+            INSERT INTO {target_table} ({key_column}, {target_column})
+            VALUES (%s, {formatted_values_str})
             """
 
             # Execute the insertion query
-            self.client.execute(insert_query, (formatted_aggregated_values,))
+            self.client.execute(insert_query, (key_value,))
 
         print(f"Data aggregation and insertion into {target_table} completed.")
+
