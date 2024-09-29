@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 from clickhouse_driver import Client
+import uuid
 
 
 class ClickHouseDataCleaner :
@@ -164,9 +165,15 @@ class ClickHouseDataCleaner :
         case_statement = f"CASE {' '.join(conditions)} ELSE {column_name} END"
         return case_statement
 
+    # def apply_lowercase (self, column_name) :
+    #     return f"lowerUTF8({column_name})"
     def apply_lowercase (self, column_name) :
-        return f"lowerUTF8({column_name})"
-
+        return f"""
+            CASE
+                WHEN isValidUTF8({column_name}) THEN lowerUTF8({column_name})
+                ELSE {column_name}  -- If invalid UTF-8, keep the original value
+            END
+        """
     # {self.apply_lowercase(self.clean_birthdate('birthdate'))}
 
     def clean_data(self, source_table, target_table):
@@ -203,7 +210,7 @@ class ClickHouseDataCleaner :
             sex,
             birthdate,
             phone
-        FROM {source_table} limit 1000000
+        FROM {source_table} limit 100000
         """
         # limit 10000
         self.client.execute(clean_query)
@@ -354,21 +361,14 @@ class ClickHouseDataCleaner :
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_2}")
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
-
-        diplicat_columns=['full_name','email','address','phone']
+        diplicat_columns=['email','address','phone']
         threashold= self.get_threashold(  f"{source_table}_dupl")
         self.make_a_result_ind(  f"{source_table}_dupl")
-        for column in diplicat_columns:
-            if column =='full_name':
-                self.update_column_based_on_dupl_count ( f"{source_table}_dupl",
-                                                         'result_index',
-                                                         column,
-                                                         0)
-            else:
-                self.update_column_based_on_dupl_count(f"{source_table}_dupl",
-                                                       'result_index',
-                                                       column,
-                                                       threashold)
+        for i, column in enumerate(diplicat_columns):
+            self.update_column_based_on_dupl_count(f"{source_table}_dupl",
+                                                   'full_name',
+                                                   column,
+                                                   threashold*i)
 
 
         # self.drop_duplication_columns(f"{source_table}_dupl", diplicat_columns)
@@ -652,18 +652,103 @@ class ClickHouseDataCleaner :
             print(f"Dropped column: {column} from {source_table}.")
 
     def check_all_mutations (self) :
-        # Query to check if there are any unfinished mutations across all tables
+        # Query to check if there are any unfinished mutations
         query = """
-           SELECT database, table, mutation_id, command, parts_to_do, is_done 
-           FROM system.mutations 
-           WHERE is_done = 0
-           """
+        SELECT count(*) 
+        FROM system.mutations 
+        WHERE is_done = 0
+        """
         result = self.client.execute(query)
 
-        if result :
-            print("Unfinished mutations found:")
-            for row in result :
-                print(
-                    f"Database: {row[0]}, Table: {row[1]}, Mutation ID: {row[2]}, Command: {row[3]}, Parts to Do: {row[4]}, Is Done: {row[5]}")
-        else :
+        # If the result is 0, there are no unfinished mutations
+        if result[0][0] == 0 :
             print("All mutations are finished.")
+            return True
+        else :
+            print("Unfinished mutations found.")
+            return False
+
+    def merge_columns (self, source_table, target_table, str_columns, merged_column_name) :
+        """
+        Merge a list of columns into one and insert the result into the target table.
+
+        :param source_table: The name of the source table.
+        :param target_table: The name of the target table where the result will be stored.
+        :param str_columns: List of the columns to merge.
+        :param merged_column_name: Name of the new merged column.
+        """
+        self.client.execute(f" DROP TABLE IF EXISTS {target_table}")
+        # Dynamically build the expression to merge columns
+        merged_expression = " || ' ' || ".join(str_columns)
+
+        # Retrieve all column names from the source table
+        all_columns = self.get_existing_columns(source_table)
+
+        # Exclude the merged columns (str1, str2, str3, etc.) from the select clause
+        columns_to_select = [col for col in all_columns if col not in str_columns]
+
+        # Define the data types for the columns (adjust based on actual data types in your source table)
+        column_definitions = {
+            'uid' : 'UUID',
+            merged_column_name : 'String',  # The merged column
+            'birthdate' : 'String',
+            'phone' : 'String',
+            'address' : 'String'
+        }
+
+        # Create the target table with explicitly listed columns and their types
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {target_table} (
+            {merged_column_name} {column_definitions[merged_column_name]},
+            {', '.join([f"{col} {column_definitions[col]}" for col in columns_to_select if col in column_definitions])}
+        )
+        ENGINE = MergeTree()
+        ORDER BY uid;
+        """
+        self.client.execute(create_table_query)
+
+        # Insert into the target table, including the merged column and the other columns
+        merge_query = f"""
+        INSERT INTO {target_table}
+        SELECT 
+            {merged_expression} AS {merged_column_name},  -- The merged column
+            {', '.join(columns_to_select)}  -- The other columns, excluding the merged ones
+        FROM {source_table};
+        """
+        self.client.execute(merge_query)
+
+        print(f"Columns {', '.join(str_columns)} merged into {merged_column_name} in {target_table}.")
+
+    def add_column_with_unique_values (self, table_name, new_column) :
+        # First, add the new column as a String type
+        add_column_query = f"""
+            ALTER TABLE {table_name} 
+            ADD COLUMN IF NOT EXISTS {new_column} String;
+        """
+        self.client.execute(add_column_query)
+
+        # Update the new column with a unique value (timestamp + random)
+
+        update_query = f"""
+            ALTER TABLE {table_name}
+            UPDATE {new_column} = address
+            WHERE 1
+        """
+        self.client.execute(update_query)
+        delete_query = f"""
+            ALTER TABLE {table_name}
+            DELETE WHERE NOT isValidUTF8(full_name)
+        """
+        self.client.execute(delete_query)
+        delete_query = f"""
+                   ALTER TABLE {table_name}
+                   DELETE WHERE NOT isValidUTF8(address)
+               """
+        self.client.execute(delete_query)
+        delete_query = f"""
+                           ALTER TABLE {table_name}
+                           DELETE WHERE NOT isValidUTF8(email)
+                       """
+        self.client.execute(delete_query)
+
+        print(f"Column {new_column} with unique random string values added to {table_name}.")

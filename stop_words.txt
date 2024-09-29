@@ -10,3 +10,4 @@ yandex
 .com
 .net
 \n
+ нет
