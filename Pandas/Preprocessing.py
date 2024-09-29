@@ -12,7 +12,7 @@ class DataCleaner:
             'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 
             'у': 'y', 'х': 'x'
         }
-        self.mail_removal = ['gmail', 'mail', 'example', 'yandex', '.ru', '.com', '.net']
+        self.mail_removal = ['gmail', '.mail', 'example', 'yandex', '.ru', '.com', '.net']
 
 #     def replace_english_letters(self, text):
 #         """
