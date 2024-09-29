@@ -103,7 +103,7 @@ class DataProcessor :
 
             # Form insert query with correct formatting
             insert_query = f"""
-            INSERT INTO {target_table} ({key_column}, {target_column})
+            INSERT INTO {target_table}  {target_column})
             VALUES (%s, {formatted_values_str})
             """
 

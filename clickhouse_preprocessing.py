@@ -210,7 +210,7 @@ class ClickHouseDataCleaner :
             sex,
             birthdate,
             phone
-        FROM {source_table} limit 100000
+        FROM {source_table}  
         """
         # limit 10000
         self.client.execute(clean_query)
