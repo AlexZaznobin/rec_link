@@ -17,10 +17,10 @@ class DataProcessor :
         self.preprocessor.run(source_table="table_dataset1", target_table="table_dataset1_clean")
         finish = time.time()
         print('finish-start',finish-start)
-        # Получаем данные из всех таблиц
+        self.preprocessor.check_all_mutations()
         table_dataset1_clean_dupl = self.preprocessor.get_dataframe_from_table('table_dataset1_clean_dupl', limit=10e9)
-        # print(table_dataset1_clean_dupl['Dup'].value_counts().sort_values(ascending=False))
-        print('Получаем данные из всех таблиц, дупликаты', "table_dataset1 =", table_dataset1_clean_dupl.shape[0] - table_dataset1_clean_dupl.Dup.unique().shape[0])
+        print(table_dataset1_clean_dupl['result_index_Dup'].value_counts().sort_values(ascending=False))
+        print('Получаем данные из всех таблиц, дупликаты', "table_dataset1 =", table_dataset1_clean_dupl.shape[0] - table_dataset1_clean_dupl.result_index_Dup.unique().shape[0])
 
 
     def get_data_from_table (self, table_name) :

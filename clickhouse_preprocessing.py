@@ -203,7 +203,7 @@ class ClickHouseDataCleaner :
             sex,
             birthdate,
             phone
-        FROM {source_table} limit 100000
+        FROM {source_table} limit 1000000
         """
         # limit 10000
         self.client.execute(clean_query)
@@ -354,10 +354,77 @@ class ClickHouseDataCleaner :
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_2}")
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
         self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
-        self.add_final_unique_column(f"{source_table}_dupl",
-                                     ['full_name','email','address','phone'])
+
+        diplicat_columns=['full_name','email','address','phone']
+        threashold= self.get_threashold(  f"{source_table}_dupl")
+        self.make_a_result_ind(  f"{source_table}_dupl")
+        for column in diplicat_columns:
+            if column =='full_name':
+                self.update_column_based_on_dupl_count ( f"{source_table}_dupl",
+                                                         'result_index',
+                                                         column,
+                                                         0)
+            else:
+                self.update_column_based_on_dupl_count(f"{source_table}_dupl",
+                                                       'result_index',
+                                                       column,
+                                                       threashold)
 
 
+        # self.drop_duplication_columns(f"{source_table}_dupl", diplicat_columns)
+    def update_column_based_on_dupl_count (self, table_name, column1, column2, threshold) :
+        """
+        This function compares column1_dupl_count with column2_dupl_count.
+        If column2_dupl_count is greater, it updates column1_Dup by adding the given threshold.
+
+        :param table_name: Name of the table.
+        :param column1: Name of the first column (e.g., 'full_name').
+        :param column2: Name of the second column (e.g., 'email').
+        :param threshold: The value to add to column1_Dup if column2_dupl_count is greater than column1_dupl_count.
+        """
+
+        # Construct the query to compare column1_dupl_count with column2_dupl_count
+        query = f"""
+            ALTER TABLE {table_name} 
+            UPDATE {column1}_Dup = 
+                CASE
+                    WHEN {column2}_dupl_count >= {column1}_dupl_count  AND {column2}_dupl_count >1 THEN {column2}_Dup + {threshold}
+                    ELSE {column1}_Dup
+                END,
+                {column1}_dupl_count = 
+                CASE
+                    WHEN {column2}_dupl_count >= {column1}_dupl_count  AND {column2}_dupl_count >1  THEN {column2}_dupl_count
+                    ELSE {column1}_dupl_count
+                END
+            WHERE {column1}_Dup IS NOT NULL
+            """
+
+        # Execute the query
+        self.client.execute(query)
+
+        print(f"Updated {column1}_Dup in {table_name} based on comparison with {column2}_dupl_count.")
+
+    def  get_threashold(self, source_table):
+        size_query = f"SELECT count(*) FROM {source_table}"
+        size = self.client.execute(size_query)[0][0]
+        return size
+
+    def make_a_result_ind (self, source_table) :
+        # Alter the source table to add the result_index_Dup column with default value = 1
+        alter_table_query = f"""
+            ALTER TABLE {source_table} 
+            ADD COLUMN IF NOT EXISTS result_index_Dup UInt32 DEFAULT 1
+        """
+        self.client.execute(alter_table_query)
+
+        # Alter the source table to add the result_index_dupl_count column with default value = 1
+        alter_table_query = f"""
+            ALTER TABLE {source_table} 
+            ADD COLUMN IF NOT EXISTS result_index_dupl_count UInt32 DEFAULT 1
+        """
+        self.client.execute(alter_table_query)
+
+        print(f"Columns 'result_index_Dup' and 'result_index_dupl_count' with default value 1 added to {source_table}.")
 
     def add_final_unique_column (self, target_table, initial_columns) :
         """
@@ -447,7 +514,8 @@ class ClickHouseDataCleaner :
 
     def add_duplication_column (self, source_table, target_table, column_name) :
         """
-        Adds a duplication column for the specified column and carries over previous columns automatically.
+        Adds a duplication column for the specified column and a column that counts duplicates.
+        Carries over previous columns automatically.
 
         :param source_table: The source table to read from.
         :param target_table: The target table where the data will be inserted.
@@ -467,23 +535,27 @@ class ClickHouseDataCleaner :
         """
         self.client.execute(create_table_query)
 
-        # Alter the target table to add the new Dup column for the current column
+        # Alter the target table to add the Dup and Dup_count columns for the current column
         alter_table_query = f"""
-        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS {column_name}_Dup UInt32
+        ALTER TABLE {target_table} 
+        ADD COLUMN IF NOT EXISTS {column_name}_Dup UInt32, 
+        ADD COLUMN IF NOT EXISTS {column_name}_dupl_count UInt32
         """
         self.client.execute(alter_table_query)
 
-        # Insert data into the new table with the Dup column for the current column and the previous columns
+        # Insert data into the new table with the Dup and Dup_count columns
         clean_query = f"""
-        INSERT INTO {target_table} ({existing_columns_select}, {column_name}_Dup)
+        INSERT INTO {target_table} ({existing_columns_select}, {column_name}_Dup, {column_name}_dupl_count)
         SELECT
             {existing_columns_select},
-            denseRank() OVER (ORDER BY {column_name}) AS {column_name}_Dup
+            denseRank() OVER (ORDER BY {column_name}) AS {column_name}_Dup,
+            count() OVER (PARTITION BY {column_name}) AS {column_name}_dupl_count
         FROM {source_table}
         """
         self.client.execute(clean_query)
 
-        print(f"Added '{column_name}_Dup' column to {target_table} without increasing row count.")
+        print(
+            f"Added '{column_name}_Dup' and '{column_name}_dupl_count' columns to {target_table} without increasing row count.")
 
     def insert_unique_uid_lists (self, source_table, target_table, uid_column, dup_column, list_column) :
         """
@@ -543,3 +615,55 @@ class ClickHouseDataCleaner :
         # Convert the result into a pandas DataFrame
         df = pd.DataFrame(result, columns=columns)
         return df
+
+
+
+    def drop_duplication_columns (self, source_table, base_columns) :
+        """
+        Drop the corresponding '_Dup' and '_dupl_count' columns for each base column provided.
+
+        :param source_table: The table from which to drop columns.
+        :param base_columns: A list of base column names for which the '_Dup' and '_dupl_count' columns will be dropped.
+        """
+        # Get the list of all existing columns from the table
+        existing_columns = self.get_existing_columns(source_table)
+
+        # Generate the corresponding '_Dup' and '_dupl_count' column names
+        columns_to_drop = []
+        for col in base_columns :
+            dup_col = f"{col}_Dup"
+            dupl_count_col = f"{col}_dupl_count"
+            columns_to_drop.extend([dup_col, dupl_count_col])
+
+        # Filter the columns that exist in the table
+        valid_columns_to_drop = [col for col in columns_to_drop if col in existing_columns]
+
+        if not valid_columns_to_drop :
+            print(f"No valid '_Dup' or '_dupl_count' columns to drop found in {source_table}.")
+            return
+
+        # Construct and execute an ALTER TABLE query to drop each valid column
+        for column in valid_columns_to_drop :
+            drop_column_query = f"""
+            ALTER TABLE {source_table} 
+            DROP COLUMN IF EXISTS {column}
+            """
+            self.client.execute(drop_column_query)
+            print(f"Dropped column: {column} from {source_table}.")
+
+    def check_all_mutations (self) :
+        # Query to check if there are any unfinished mutations across all tables
+        query = """
+           SELECT database, table, mutation_id, command, parts_to_do, is_done 
+           FROM system.mutations 
+           WHERE is_done = 0
+           """
+        result = self.client.execute(query)
+
+        if result :
+            print("Unfinished mutations found:")
+            for row in result :
+                print(
+                    f"Database: {row[0]}, Table: {row[1]}, Mutation ID: {row[2]}, Command: {row[3]}, Parts to Do: {row[4]}, Is Done: {row[5]}")
+        else :
+            print("All mutations are finished.")
