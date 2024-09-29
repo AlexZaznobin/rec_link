@@ -1,3 +1,4 @@
 clickhouse-driver
 python-Levenshtein
 fuzzywuzzy
+pandas

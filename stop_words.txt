@@ -9,3 +9,4 @@ yandex
 .ru
 .com
 .net
+\n

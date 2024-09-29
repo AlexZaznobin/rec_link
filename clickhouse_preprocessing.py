@@ -1,4 +1,5 @@
 import json
+import pandas as pd
 from clickhouse_driver import Client
 
 
@@ -16,9 +17,9 @@ class ClickHouseDataCleaner :
         print(f"Data cleaning completed. Cleaned data saved to {target_table}")
         self.dedupl(target_table)
         print(f"deduplication cleaning completed. Cleaned data saved to {target_table}_dupl")
-        self.insert_unique_uid_lists( f"{target_table}_dupl", "table_results", 'uid', 'Dup', 'id_is1')
-
-        print(f"insert_unique_uid_lists completed")
+        # self.insert_unique_uid_lists( f"{target_table}_dupl", "table_results", 'uid', 'Dup', 'id_is1')
+        #
+        # print(f"insert_unique_uid_lists completed")
 
     def load_stop_words (self) :
         with open(self.stop_words_file, 'r', encoding='utf-8') as file :
@@ -29,6 +30,8 @@ class ClickHouseDataCleaner :
             return json.load(file)
 
     def create_target_table (self, source_table, target_table) :
+        self.client.execute(f" DROP TABLE IF EXISTS {target_table}")
+        self.client.execute(f" DROP TABLE IF EXISTS {target_table}_dupl")
         create_table_query = f"""
         CREATE TABLE IF NOT EXISTS {target_table} AS {source_table}
         ENGINE = MergeTree() ORDER BY full_name
@@ -39,7 +42,11 @@ class ClickHouseDataCleaner :
         # Apply replaceRegexpAll for each stop word to the given column (full_name)
         stop_words_condition = column_name
         for word in self.stop_words :
-            stop_words_condition = f"replaceRegexpAll({stop_words_condition}, ' {word} ', '')"
+            # Handle newline as a special case
+            if word == "\\n" :
+                stop_words_condition = f"replaceRegexpAll({stop_words_condition}, '\\\\n', '')"
+            else :
+                stop_words_condition = f"replaceRegexpAll({stop_words_condition}, ' {word} ', '')"
 
         return stop_words_condition
 
@@ -75,19 +82,62 @@ class ClickHouseDataCleaner :
         """
 
     def transliterate_column_ru_en (self, column_name) :
-        return f"""
-        replaceRegexpAll(
-            transform({column_name}, ['а','е','в','к','м','н','о','р','с','т','у','х'], 
-                                 ['a','e','b','k','m','h','o','p','c','t','y','x']),
-            '@.*$', ''
-        )
-        
-        """
+        cyrillic_to_latin = {
+            'а' : 'a', 'А' : 'A', 'б' : 'b', 'Б' : 'B', 'ц' : 'c', 'Ц' : 'C', 'д' : 'd', 'Д' : 'D', 'е' : 'e',
+            'Е' : 'E',
+            'ф' : 'f', 'Ф' : 'F', 'г' : 'g', 'Г' : 'G', 'х' : 'h', 'Х' : 'H', 'и' : 'i', 'И' : 'I', 'й' : 'j',
+            'Й' : 'J',
+            'к' : 'k', 'К' : 'K', 'л' : 'l', 'Л' : 'L', 'м' : 'm', 'М' : 'M', 'н' : 'n', 'Н' : 'N', 'о' : 'o',
+            'О' : 'O',
+            'п' : 'p', 'П' : 'P', 'к' : 'q', 'К' : 'Q', 'р' : 'r', 'Р' : 'R', 'с' : 's', 'С' : 'S', 'т' : 't',
+            'Т' : 'T',
+            'у' : 'u', 'У' : 'U', 'в' : 'v', 'В' : 'V', 'в' : 'w', 'В' : 'W', 'кс' : 'x', 'Кс' : 'X', 'ы' : 'y',
+            'Ы' : 'Y',
+            'з' : 'z', 'З' : 'Z'
+        }
+
+        replace_chain = column_name
+        for cyrillic, latin in cyrillic_to_latin.items() :
+            replace_chain = f"replaceRegexpAll({replace_chain}, '{cyrillic}', '{latin}')"
+
+        # Remove everything after the '@' symbol
+        replace_chain = f"replaceRegexpAll({replace_chain}, '@.*$', '')"
+
+        # Remove all punctuation marks, including '-' and '_'
+        replace_chain = f"replaceRegexpAll({replace_chain}, '[[:punct:]_-]', '')"
+
+        return replace_chain
 
     def transliterate_column_en_ru (self, column_name) :
+        latin_to_cyrillic = {
+            'a' : 'а', 'A' : 'А', 'b' : 'б', 'B' : 'Б', 'c' : 'ц', 'C' : 'Ц', 'd' : 'д', 'D' : 'Д', 'e' : 'е',
+            'E' : 'Е',
+            'f' : 'ф', 'F' : 'Ф', 'g' : 'г', 'G' : 'Г', 'h' : 'х', 'H' : 'Х', 'i' : 'и', 'I' : 'И', 'j' : 'й',
+            'J' : 'Й',
+            'k' : 'к', 'K' : 'К', 'l' : 'л', 'L' : 'Л', 'm' : 'м', 'M' : 'М', 'n' : 'н', 'N' : 'Н', 'o' : 'о',
+            'O' : 'О',
+            'p' : 'п', 'P' : 'П', 'q' : 'к', 'Q' : 'К', 'r' : 'р', 'R' : 'Р', 's' : 'с', 'S' : 'С', 't' : 'т',
+            'T' : 'Т',
+            'u' : 'у', 'U' : 'У', 'v' : 'в', 'V' : 'В', 'w' : 'в', 'W' : 'В', 'x' : 'кс', 'X' : 'Кс', 'y' : 'ы',
+            'Y' : 'Ы',
+            'z' : 'з', 'Z' : 'З'
+        }
+
+        replace_chain = column_name
+        for latin, cyrillic in latin_to_cyrillic.items() :
+            replace_chain = f"replaceRegexpAll({replace_chain}, '{latin}', '{cyrillic}')"
+
+        # Remove everything after the '@' symbol
+        replace_chain = f"replaceRegexpAll({replace_chain}, '@.*$', '')"
+
+        # Remove all punctuation marks, including '-' and '_'
+        replace_chain = f"replaceRegexpAll({replace_chain}, '[[:punct:]_-]', '')"
+
+        return replace_chain
+
+    def transliterate_column_en_ru_complex (self, column_name) :
         return f"""
-        transform({column_name}, ['a','e','b','k','m','h','o','p','c','t','y','x'], 
-                               ['а','е','в','к','м','н','о','р','с','т','у','х'])
+        replaceRegexpAll(replaceRegexpAll(replaceRegexpAll({column_name}, 'zh', 'ж'), 'sh', 'ш'), 'ch', 'ч')
         """
     def clean_birthdate (self, column_name) :
         conditions = []
@@ -122,11 +172,17 @@ class ClickHouseDataCleaner :
     def clean_data(self, source_table, target_table):
         inter_table_1= f"{source_table}_i1"
         inter_table_2= f"{source_table}_i2"
+        inter_table_3= f"{source_table}_i3"
+        inter_table_4= f"{source_table}_i4"
         self.lower_casing(  source_table, inter_table_1)
         self.remove_stop_words(inter_table_1, inter_table_2)
-        self.transliteration(inter_table_2, target_table)
+        self.transliteration(inter_table_2, inter_table_3)
+        self.fix_short_phone_numbers(inter_table_3, inter_table_4)
+        self.remove_numbers_from_full_name(inter_table_4, target_table)
         self.client.execute(f" DROP TABLE IF EXISTS {inter_table_1}")
         self.client.execute(f" DROP TABLE IF EXISTS {inter_table_2}")
+        self.client.execute(f" DROP TABLE IF EXISTS {inter_table_3}")
+        self.client.execute(f" DROP TABLE IF EXISTS {inter_table_4}")
 
     def lower_casing (self, source_table, target_table) :
 
@@ -147,9 +203,9 @@ class ClickHouseDataCleaner :
             sex,
             birthdate,
             phone
-        FROM {source_table} limit 10000
+        FROM {source_table} limit 100000
         """
-
+        # limit 10000
         self.client.execute(clean_query)
 
     def remove_stop_words (self, intermediate_table, target_table) :
@@ -183,7 +239,7 @@ class ClickHouseDataCleaner :
         INSERT INTO {target_table}
         SELECT
             uid,
-            {self.transliterate_column_en_ru('full_name')} AS full_name,            
+            {self.transliterate_column_en_ru_complex(self.transliterate_column_en_ru('full_name'))} AS full_name,            
             {self.transliterate_column_ru_en('email')} AS email,
             {self.transliterate_column_en_ru('address')} AS address,      
             sex,
@@ -205,12 +261,143 @@ class ClickHouseDataCleaner :
 
         print(f"Removed stop words from 'full_name' and inserted cleaned data into {target_table}.")
 
+    def remove_numbers_from_full_name (self, source_table, target_table) :
+        """
+        This function removes all numbers (0-9) from the 'full_name' column.
+
+        :param source_table: The source table to modify the 'full_name' column.
+        :param target_table: The target table where the result will be stored.
+        """
+
+        # Create the target table if it doesn't exist
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {target_table} 
+        AS {source_table} 
+        ENGINE = MergeTree()
+        ORDER BY full_name
+        """
+        self.client.execute(create_table_query)
+
+        # Query to remove numbers from the 'full_name' column using replaceRegexpAll
+        clean_query = f"""
+        INSERT INTO {target_table}
+        SELECT
+            uid,
+            replaceRegexpAll(full_name, '[0-9]', '') AS full_name,
+            email,
+            address,
+            sex,
+            birthdate,
+            phone
+        FROM {source_table}
+        """
+
+        self.client.execute(clean_query)
+
+        print(f"Removed numbers from 'full_name' column and saved the cleaned data to {target_table}.")
+
+    def fix_short_phone_numbers (self, source_table, target_table, phone_num=10) :
+        """
+        This function checks if the phone number has a length less than 10,
+        and if so, appends the value of the 'full_name' column to the 'phone' column.
+
+        :param source_table: The source table to check phone numbers.
+        :param target_table: The target table where the result will be stored.
+        """
+
+        # Create the target table if it doesn't exist
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {target_table} 
+        AS {source_table} 
+        ENGINE = MergeTree()
+        ORDER BY full_name
+        """
+        self.client.execute(create_table_query)
+
+        # Now, update the phone column where the length of the phone number is less than phone_num
+        update_query = f"""
+        INSERT INTO {target_table}
+        SELECT
+            uid,
+            full_name,
+            email,
+            address,
+            sex,
+            birthdate,
+            CASE
+                WHEN length(phone) < {phone_num} THEN concat(phone, ' ', full_name)
+                ELSE phone
+            END AS phone
+        FROM {source_table}
+        """
+
+        self.client.execute(update_query)
+
+        print(f"Updated short phone numbers in {target_table} by appending the full name.")
 
     def dedupl(self,source_table):
-        self.add_duplication_column(source_table,
-                                    'full_name')
-        self.client.execute(f" DROP TABLE IF EXISTS source_table")
 
+
+        itbl_1=f"{source_table}_1"
+        itbl_2=f"{source_table}_2"
+        itbl_3=f"{source_table}_3"
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_1}")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_2}")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
+        self.add_duplication_column(source_table, itbl_1,'full_name')
+        self.add_duplication_column(itbl_1, itbl_2, 'email')
+        self.add_duplication_column(itbl_2, itbl_3, 'address')
+        self.add_duplication_column(itbl_3, f"{source_table}_dupl",'phone')
+
+        self.client.execute(f" DROP TABLE IF EXISTS source_table")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_1}")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_2}")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
+        self.client.execute(f" DROP TABLE IF EXISTS {itbl_3}")
+        self.add_final_unique_column(f"{source_table}_dupl",
+                                     ['full_name','email','address','phone'])
+
+
+
+    def add_final_unique_column (self, target_table, initial_columns) :
+        """
+        Adds a 'final_unique' column that groups rows based on any non-unique duplication columns.
+        :param source_table: The source table where duplication columns have been added.
+        :param initial_columns: List of initial columns (e.g., ['full_name', 'email', 'address', 'phone']).
+        """
+
+        # Generate the corresponding duplication column names (e.g., full_name -> full_name_Dup)
+        duplication_columns = [f"{col}_Dup" for col in initial_columns]
+
+        # Ensure uid is available in the target table (if not already there)
+        alter_table_query = f"""
+        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS final_unique UInt32
+        """
+        self.client.execute(alter_table_query)
+
+        # Dynamically create the list of conditions for the duplication check
+        condition_columns = " OR ".join([f"CAST({col} AS UInt32) > 1" for col in duplication_columns])
+
+        # Create a temporary table with the final_unique values and ensure 'uid' is included
+        temp_table_query = f"""
+        CREATE TEMPORARY TABLE temp_final_unique AS
+        SELECT uid, denseRank() OVER (ORDER BY {condition_columns}) AS final_unique
+        FROM {target_table}
+        """
+        self.client.execute(temp_table_query)
+
+        # Update the original table with final_unique values from the temporary table
+        update_query = f"""
+        ALTER TABLE {target_table}
+        UPDATE final_unique = (SELECT final_unique FROM temp_final_unique WHERE temp_final_unique.uid = {target_table}.uid)
+        WHERE uid IN (SELECT uid FROM temp_final_unique)
+        """
+        self.client.execute(update_query)
+
+        # Drop the temporary table
+        self.client.execute("DROP TABLE IF EXISTS temp_final_unique")
+
+        print(f"Added 'final_unique' column in {target_table} with repeating indices based on the duplication columns.")
 
     def test_clickhouse_connection (self) :
         # A simple query to test connection
@@ -247,55 +434,31 @@ class ClickHouseDataCleaner :
         # Execute the query
         self.client.execute(query)
 
-    def add_duplication_columns (self, source_table, column_names) :
-        # Target table where duplicates are identified
-        target_table = f"{source_table}_dupl"
-
-        # Join column names to use them in the ORDER BY and denseRank
-        columns_concat = ", ".join(column_names)
-
-        # Create a new table based on the source table if it doesn't exist
-        create_table_query = f"""
-        CREATE TABLE IF NOT EXISTS {target_table} 
-        AS {source_table} 
-        ENGINE = MergeTree()
-        ORDER BY ({columns_concat})
+    def get_existing_columns (self, table_name) :
         """
-        self.client.execute(create_table_query)
+        Retrieves the list of columns from the specified table.
 
-        # Alter the target table to add the Dup column if it doesn't exist
-        alter_table_query = f"""
-        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS Dup UInt32
+        :param table_name: The name of the table from which to retrieve columns.
+        :return: A list of column names.
         """
-        self.client.execute(alter_table_query)
+        describe_query = f"DESCRIBE TABLE {table_name}"
+        result = self.client.execute(describe_query)
+        return [row[0] for row in result]  # Extract column names from the result
 
-        # Properly build the denseRank query by joining column names
-        rank_columns = ", ".join([f"toString({col})" for col in column_names])
-
-        # Insert data into the new table with the Dup column for duplicates across multiple columns
-        clean_query = f"""
-        INSERT INTO {target_table} (uid, full_name, email, address, sex, birthdate, phone, Dup)
-        SELECT
-            uid,
-            full_name,
-            email,
-            address,
-            sex,
-            birthdate,
-            phone,
-            denseRank() OVER (ORDER BY {rank_columns}) AS Dup
-        FROM {source_table}
+    def add_duplication_column (self, source_table, target_table, column_name) :
         """
-        self.client.execute(clean_query)
+        Adds a duplication column for the specified column and carries over previous columns automatically.
 
-        print(
-            f"Data from {source_table} has been inserted into {target_table} with a new 'Dup' column for duplicates based on {column_names}.")
+        :param source_table: The source table to read from.
+        :param target_table: The target table where the data will be inserted.
+        :param column_name: The column to compute the duplication for.
+        """
 
-    def add_duplication_column (self, source_table, column_name) :
-        # Target table where duplicates are identified
-        target_table = f"{source_table}_dupl"
+        # Retrieve existing columns from the source table, including previously created Dup columns
+        existing_columns = self.get_existing_columns(source_table)
+        existing_columns_select = ", ".join(existing_columns)
 
-        # Create a new table based on the source table if it doesn't exist
+        # Create the target table based on the source table if it doesn't exist
         create_table_query = f"""
         CREATE TABLE IF NOT EXISTS {target_table} 
         AS {source_table} 
@@ -304,29 +467,23 @@ class ClickHouseDataCleaner :
         """
         self.client.execute(create_table_query)
 
-        # Alter the target table to add the Dup column if it doesn't exist
+        # Alter the target table to add the new Dup column for the current column
         alter_table_query = f"""
-        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS Dup UInt32
+        ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS {column_name}_Dup UInt32
         """
         self.client.execute(alter_table_query)
 
-        # Insert data into the new table with the Dup column for duplicates
+        # Insert data into the new table with the Dup column for the current column and the previous columns
         clean_query = f"""
-        INSERT INTO {target_table} (uid, full_name, email, address, sex, birthdate, phone, Dup)
+        INSERT INTO {target_table} ({existing_columns_select}, {column_name}_Dup)
         SELECT
-            uid,
-            full_name,
-            email,
-            address,
-            sex,
-            birthdate,
-            phone,
-            denseRank() OVER (ORDER BY {column_name}) AS Dup
+            {existing_columns_select},
+            denseRank() OVER (ORDER BY {column_name}) AS {column_name}_Dup
         FROM {source_table}
         """
         self.client.execute(clean_query)
 
-        print(f"Data from {source_table} has been inserted into {target_table} with a new 'Dup' column for duplicates.")
+        print(f"Added '{column_name}_Dup' column to {target_table} without increasing row count.")
 
     def insert_unique_uid_lists (self, source_table, target_table, uid_column, dup_column, list_column) :
         """
@@ -363,3 +520,26 @@ class ClickHouseDataCleaner :
             self.client.execute(insert_query)
 
         print(f"Inserted unique uid lists into {target_table} for {len(grouped_uids)} Dup groups.")
+
+    def get_dataframe_from_table(self, table_name, limit=10000):
+        """
+        This function retrieves data from the specified table and returns it as a pandas DataFrame.
+
+        :param table_name: The name of the table to query.
+        :param limit: The number of rows to retrieve. Default is 10,000.
+        :return: A pandas DataFrame containing the table data.
+        """
+        # Define the query to fetch data
+        query = f"SELECT * FROM {table_name} LIMIT {limit}"
+
+        # Execute the query
+        result = self.client.execute(query)
+
+        # Fetch column names (you can use DESCRIBE to get the column names if not available in result)
+        describe_query = f"DESCRIBE TABLE {table_name}"
+        column_info = self.client.execute(describe_query)
+        columns = [col[0] for col in column_info]
+
+        # Convert the result into a pandas DataFrame
+        df = pd.DataFrame(result, columns=columns)
+        return df
